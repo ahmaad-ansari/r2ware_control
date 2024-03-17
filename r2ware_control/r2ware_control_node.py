@@ -56,7 +56,7 @@ class YahboomCarDriver(Node):
 
 def main():
     rclpy.init()
-    driver = YahboomCarDriver('driver_node')  
+    driver = YahboomCarDriver('r2ware_control_node')  
     try:
         rclpy.spin(driver)
     except KeyboardInterrupt:

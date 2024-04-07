@@ -26,13 +26,13 @@ class YahboomCarDriver(Node):
 
     def control_command_callback(self, msg):
         self.process_car_motion(msg.longitudinal.speed, msg.lateral.steering_tire_angle)
-        self.control_led_strip(brake=self.brake, left_turn=self.left_turn, right_turn=self.right_turn, emergency=self.emergency, park=self.park)
+        self.control_led_strip(brake=self.brake, left_turn=self.left_turn, right_turn=self.right_turn, reverse=self.reverse, emergency=self.emergency, park=self.park)
 
     def gear_command_callback(self, msg):
         # Update global variables based on GearCommand message
-        if msg.command == autoware_auto_vehicle_msgs.msg.GearCommand_Constants.REVERSE:
+        if msg.command == GearCommand.REVERSE:
             self.reverse = True
-        elif msg.command == autoware_auto_vehicle_msgs.msg.GearCommand_Constants.PARK:
+        elif msg.command == GearCommand.PARK:
             self.park = True
         else:
             self.reverse = False
@@ -40,22 +40,24 @@ class YahboomCarDriver(Node):
 
     def hazard_lights_callback(self, msg):
         # Update global variables based on HazardLightsCommand message
-        if msg.command == autoware_auto_vehicle_msgs.msg.HazardLightsCommand_Constants.ENABLE:
+        if msg.command == HazardLightsCommand.ENABLE:
             self.emergency = True
         else:
             self.emergency = False
 
+
     def turn_indicators_callback(self, msg):
         # Update global variables based on TurnIndicatorsCommand message
-        if msg.command == autoware_auto_vehicle_msgs.msg.TurnIndicatorsCommand_Constants.ENABLE_LEFT:
+        if msg.command == TurnIndicatorsCommand.ENABLE_LEFT:
             self.left_turn = True
             self.right_turn = False
-        elif msg.command == autoware_auto_vehicle_msgs.msg.TurnIndicatorsCommand_Constants.ENABLE_RIGHT:
+        elif msg.command == TurnIndicatorsCommand.ENABLE_RIGHT:
             self.left_turn = False
             self.right_turn = True
         else:
             self.left_turn = False
             self.right_turn = False
+
 
     def process_car_motion(self, speed, angle_rad):
         self.get_logger().info(f"Received Speed (m/s): {speed}")
@@ -72,7 +74,7 @@ class YahboomCarDriver(Node):
 
     def control_led_strip(self, brake=False, left_turn=False, right_turn=False, reverse=False, emergency=False, park=False):
         # Define default colors for each LED
-        colors = [(0, 0, 0)] * LED_STRIP_LENGTH  # Initialize all LEDs to off
+        colors = [(0, 0, 0)] * 14  # Initialize all LEDs to off
 
         # Set colors based on signals
         if left_turn:
@@ -102,7 +104,7 @@ class YahboomCarDriver(Node):
 
         # Set colors on the LED strip
         for i, color in enumerate(colors):
-            bot.set_colorful_lamps(i, color[0], color[1], color[2])
+            self.car.set_colorful_lamps(i, color[0], color[1], color[2])
 
 def main():
     rclpy.init()

@@ -1,58 +1,115 @@
 import rclpy
 from rclpy.node import Node
 from autoware_auto_control_msgs.msg import AckermannControlCommand
+from autoware_auto_vehicle_msgs.msg import GearCommand, HazardLightsCommand, TurnIndicatorsCommand
 from Rosmaster_Lib import Rosmaster
+import math
 
 class YahboomCarDriver(Node):
-    CONTROL_COMMAND_TOPIC = '/control/command/control_cmd'
-
-    def __init__(self, node_name, control_command_topic=CONTROL_COMMAND_TOPIC):
+    
+    def __init__(self, node_name):
         super().__init__(node_name)
 
         self.car = Rosmaster()
-        self.control_command_subscription = self.create_subscription(
-            AckermannControlCommand,
-            control_command_topic,
-            self.control_command_callback,
-            10
-        )
+
+        self.brake = False
+        self.left_turn = False
+        self.right_turn = False
+        self.reverse = False
+        self.emergency = False
+        self.park = False
+
+        self.control_command_subscription = self.create_subscription(AckermannControlCommand, '/control/command/control_cmd', self.control_command_callback, 10)
+        self.gear_command_subscription = self.create_subscription(GearCommand, '/control/command/gear_cmd', self.gear_command_callback, 10)
+        self.hazard_lights_subscription = self.create_subscription(HazardLightsCommand, '/control/command/hazard_lights_cmd', self.hazard_lights_callback, 10)
+        self.turn_indicators_subscription = self.create_subscription(TurnIndicatorsCommand, '/control/command/turn_indicators_cmd', self.turn_indicators_callback, 10)
 
     def control_command_callback(self, msg):
-        self.process_steering_angle(msg.lateral.steering_tire_angle)
-        self.process_motor_speed(msg.longitudinal.speed)
-        self.update_colorful_lamps(msg.longitudinal.speed)
+        self.process_car_motion(msg.longitudinal.speed, msg.lateral.steering_tire_angle)
+        self.control_led_strip(brake=self.brake, left_turn=self.left_turn, right_turn=self.right_turn, reverse=self.reverse, emergency=self.emergency, park=self.park)
 
-    def process_steering_angle(self, angle_rad):
-        # Ensure the steering angle is within the range of -0.07 to 0.07
-        steering_angle = max(min(angle_rad, 0.07), -0.07)
-        steering_angle = -steering_angle
-        steering_angle_degrees = ((steering_angle + 0.07) / 0.14) * 180.0
+    def gear_command_callback(self, msg):
+        # Update global variables based on GearCommand message
+        if msg.command == GearCommand.REVERSE:
+            self.reverse = True
+        elif msg.command == GearCommand.PARK:
+            self.park = True
+        else:
+            self.reverse = False
+            self.park = False
 
-        self.get_logger().info(f"Received Steering Angle (rad): {angle_rad}")
-        self.get_logger().info(f"Calculated Steering Angle (deg): {steering_angle_degrees}")
-        self.car.set_pwm_servo(1, steering_angle_degrees)
+    def hazard_lights_callback(self, msg):
+        # Update global variables based on HazardLightsCommand message
+        if msg.command == HazardLightsCommand.ENABLE:
+            self.emergency = True
+        else:
+            self.emergency = False
 
-    def process_motor_speed(self, speed):
-        mapped_speed = self.map_speed_to_motor(speed)
+
+    def turn_indicators_callback(self, msg):
+        # Update global variables based on TurnIndicatorsCommand message
+        if msg.command == TurnIndicatorsCommand.ENABLE_LEFT:
+            self.left_turn = True
+            self.right_turn = False
+        elif msg.command == TurnIndicatorsCommand.ENABLE_RIGHT:
+            self.left_turn = False
+            self.right_turn = True
+        else:
+            self.left_turn = False
+            self.right_turn = False
+
+
+    def process_car_motion(self, speed, angle_rad):
         self.get_logger().info(f"Received Speed (m/s): {speed}")
-        self.get_logger().info(f"Calculated Motor Speed (%): {mapped_speed}")
-        self.car.set_motor(0, mapped_speed, 0, mapped_speed)
 
-    def map_speed_to_motor(self, speed):
-        if speed > 0:
-            return max(min(speed, 100), 35)
-        elif speed < 0:
-            return min(max(speed, -100), -35)
-        else:
-            return 0
+        autoware_input_min_rad = -0.7
+        autoware_input_max_rad = 0.7
 
-    def update_colorful_lamps(self, speed):
-        if speed < 0:
-            self.car.set_colorful_lamps(0xff, 255, 255, 255)  # Set color to white
-        elif speed == 0:
-            self.car.set_colorful_lamps(0xff, 255, 0, 0)  # Set color to red
-        else:
-            self.car.set_colorful_lamps(0xff, 0, 0, 0)  # Turn off lamps
+        yahboom_output_min = -0.45
+        yahboom_output_max = 0.45
+
+        steering_angle = ((angle_rad - autoware_input_min_rad) / (autoware_input_max_rad - autoware_input_min_rad)) * (yahboom_output_max - yahboom_output_min) + yahboom_output_min
+
+        if speed == 0:
+            self.brake = True
+        else:            
+            self.brake = False
+
+        self.car.set_car_motion(speed, steering_angle, 0.0)
+
+    def control_led_strip(self, brake=False, left_turn=False, right_turn=False, reverse=False, emergency=False, park=False):
+        # Define default colors for each LED
+        colors = [(0, 0, 0)] * 14  # Initialize all LEDs to off
+
+        # Set colors based on signals
+        if left_turn:
+            led_ids_left_turn = [0, 1]
+            for led_id in led_ids_left_turn:
+                colors[led_id] = (255, 80, 0)  # Set LEDs to yellow for left turn
+        if brake:
+            led_ids_brake = [3, 4, 5, 6, 7, 8, 9, 10]
+            for led_id in led_ids_brake:
+                colors[led_id] = (255, 0, 0)  # Set LEDs to red for brake
+        if reverse:
+            led_ids_reverse = [2, 11]
+            for led_id in led_ids_reverse:
+                colors[led_id] = (255, 255, 255)  # Set LEDs to green for reverse
+        if right_turn:
+            led_ids_right_turn = [12, 13]
+            for led_id in led_ids_right_turn:
+                colors[led_id] = (255, 80, 0)  # Set LEDs to yellow for right turn
+        if emergency:
+            led_ids_emergency = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            for led_id in led_ids_emergency:
+                colors[led_id] = (255, 0, 0)
+        if park:
+            led_ids_park = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            for led_id in led_ids_park:
+                colors[led_id] = (0, 255, 0)
+
+        # Set colors on the LED strip
+        for i, color in enumerate(colors):
+            self.car.set_colorful_lamps(i, color[0], color[1], color[2])
 
 def main():
     rclpy.init()
@@ -62,8 +119,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        # Stop everything, set motors to 0, and turn off LEDs
-        driver.car.set_motor(0, 0, 0, 0)
+        # Stop everything and turn off LEDs
+        driver.car.set_car_motion(0.0, 0.0, 0.0)
         driver.car.set_colorful_lamps(0xff, 0, 0, 0)
         driver.destroy_node()
         rclpy.shutdown()

@@ -25,7 +25,6 @@ setup(
     entry_points={
         'console_scripts': [
             'r2ware_control_node = r2ware_control.r2ware_control_node:main',
-            'r2ware_control_test_node = r2ware_control.r2ware_control_test_node:main'
         ],
     },
 )
